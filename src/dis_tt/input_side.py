@@ -31,6 +31,8 @@ from typing import Sequence
 
 import numpy as np
 
+from . import tt
+from .dense import dis_tt_dense
 from .interfaces import DISTTResult, GaussianPrior, SnapshotSet
 
 
@@ -43,22 +45,31 @@ class WhitenedInputBasis:
 
     def W(self) -> np.ndarray:
         """Dense white-space basis (white_dim, r_X). Requires result.is_basis."""
-        raise NotImplementedError("T6")
+        if not self.result.is_basis:
+            raise ValueError("W() needs an r-column basis (D = d)")
+        return tt.block_to_dense(self.result.cores)
 
     def encode(self, x: np.ndarray) -> np.ndarray:
         """xi = W^T L^{-1} x; x (d_X,) or (d_X, n) -> (r_X,) or (r_X, n)."""
-        raise NotImplementedError("T6")
+        return self.W().T @ self.prior.apply_inv_sqrt(np.asarray(x, dtype=float))
 
     def decode(self, xi: np.ndarray) -> np.ndarray:
         """x = L W xi."""
-        raise NotImplementedError("T6")
+        return self.prior.apply_sqrt(self.W() @ np.asarray(xi, dtype=float))
 
     def V(self) -> np.ndarray:
         """Physical E-orthonormal basis L W, shape (d_X, r_X)."""
-        raise NotImplementedError("T6")
+        return self.prior.apply_sqrt(self.W())
 
 
 def input_dis_tt(snaps: SnapshotSet, white_mode_sizes: Sequence[int], prior: GaussianPrior,
                  **dense_kwargs) -> WhitenedInputBasis:
     """Run Algorithm A on whitened VJP snapshots (D = d forced) and wrap the result."""
-    raise NotImplementedError("T6")
+    modes = tuple(int(n) for n in white_mode_sizes)
+    if snaps.Z.shape[0] != int(np.prod(modes)):
+        raise ValueError(f"snapshots have {snaps.Z.shape[0]} rows, prod(white_mode_sizes) = {int(np.prod(modes))}")
+    D = dense_kwargs.pop("D", None)
+    if D is not None and int(D) != len(modes):
+        raise ValueError("input_dis_tt needs an r-column basis: D = d is forced")
+    result = dis_tt_dense(snaps.Z, modes, D=len(modes), **dense_kwargs)
+    return WhitenedInputBasis(result=result, prior=prior)
