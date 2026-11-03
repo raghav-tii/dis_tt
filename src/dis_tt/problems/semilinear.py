@@ -152,6 +152,11 @@ class SemilinearProblem:
             y, r = y_new, r_new
             if np.linalg.norm(r) <= self.newton_tol * max(r0, 1e-300) or np.linalg.norm(t * dy) <= 1e-15 * (1 + np.linalg.norm(y)):
                 break
+        else:
+            raise RuntimeError(
+                f"Newton failed to converge in {self.newton_maxit} iterations "
+                f"(relative residual {np.linalg.norm(r) / max(r0, 1e-300):.6g})"
+            )
         return {"x": x, "y": y, "ab": self._jac_banded(y), "newton_iters": it,
                 "res_rel": float(np.linalg.norm(r) / max(r0, 1e-300))}
 

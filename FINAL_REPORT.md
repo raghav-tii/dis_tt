@@ -1,8 +1,9 @@
 # DIS-TT implementation: final report (2026-11-03)
 
 Integration documentation; it is outside the per-task file ownership in AGENTS.md. Per-task details,
-design choices and AGENTS-format reports are in `notes/T1.md` ... `notes/T10.md`. The independent audit
-is in `notes/CODEX_REVIEW.md`.
+design choices and AGENTS-format reports are in `notes/T1.md` ... `notes/T10.md`. The core audit
+is in `notes/CODEX_REVIEW.md`; independent consolidated-head validation and remaining compliance issues
+are in `notes/FINAL_VALIDATION.md`.
 
 ## 1. Status
 
@@ -17,14 +18,14 @@ is in `notes/CODEX_REVIEW.md`.
 | T6b | `src/dis_tt/bounds.py` | done | `tests/test_bounds.py` 4 passed |
 | T7 | `src/dis_tt/rbno.py` (data, loss) | done | `tests/test_rbno.py` 2 passed |
 | T8 | `rbno.train_latent_network` (JAX, optional) | done; overfit test deviates from Table 2 (see 5) | own `tests/test_train.py` 3 passed |
-| T9 | `problems/semilinear.py`, `experiments/run_checklist.py` | done; FD approximation of the paper setup | own `tests/test_semilinear.py` 6 passed; exp1-exp6 executed |
+| T9 | `problems/semilinear.py`, `experiments/run_checklist.py` | implemented; strict compliance partial (see 6.8) | own `tests/test_semilinear.py` 6 passed; exp1-exp6 executed |
 | T10 | `src/dis_tt/refine.py` | optional, NOT implemented (stub remains) | none |
 
 Ground truth `tests/test_toy_problem.py`: 5 passed. All 61 original tests (baseline `d764b45`) pass.
 
 Remaining stubs: `refine.als_refine` raises `NotImplementedError("T10")`. No other stubs remain.
 
-## 2. Test evidence (final `main`, run on 2026-11-03)
+## 2. Test evidence (integration head `1f50554`, run on 2026-11-03)
 Environment: repository-local `.venv` (Python 3.12.3, numpy 2.5.4, scipy 1.18.1, pytest 9.2.0,
 jax 0.12.0.1 + jaxlib 0.12.0.1, optax 0.2.8; CPU only).
 
@@ -72,9 +73,9 @@ exp1 0.2 s, exp2 89 s, exp3 133 s, exp4 25 s, exp5 3.7 s, exp6 410 s.
 - exp2: training identity exact (4.4e-11). Held-out error > training upper bound for N = 10 at eps 0.03 and 0.01.
   Plug-in Prop. 2 sampling term (2.4e3 to 2.7e4) is vacuous against errors <= 220.
 - exp3: input DIS beats input KL/PCA (r = 8: 1.42e-3 vs 4.84e-3; r = 32: 4.8e-6 vs 3.4e-5). Output PCA-TT and
-  DIS-TT are near parity in L2 at equal parameters; DIS is better in H1 at low budgets.
+  DIS-TT show similar L2 errors at roughly comparable sizes in an eps sweep (not matched parameters); DIS is better in H1 at low budgets.
 - exp4: budget 1280 linear solves: random 2.72e-3 +- 2.9e-4, KL 2.69e-3 +- 3.6e-4, exact (N = 5) 4.55e-3 +- 9.4e-4.
-- exp5: max ranks saturate with depth (d = 9 -> 10 unchanged). DIS-TT ranks exceed PCA-TT ranks (eps 0.1:
+- exp5: DIS max ranks repeat at d = 9 and 10; this finite sweep does not establish asymptotic saturation. DIS-TT ranks exceed PCA-TT ranks (eps 0.1:
   14 vs 10 at d = 10). Per-bond DIS spectra decay more slowly (caveat 4 confirmed).
 - exp6: RBNO at r = 10 / 20 under the Table 2 protocol: L2 4.3e-3 / 1.5e-3; H1 0.18-0.34 (network-limited,
   reconstruction 2e-3 / 5e-5). TT bases at d = 8 have more parameters than dense bases (18 480 vs 5 120 at r = 10).
@@ -84,7 +85,8 @@ exp1 0.2 s, exp2 89 s, exp3 133 s, exp4 25 s, exp5 3.7 s, exp6 410 s.
 - T3: extra `batch` kwarg; T6b: extra `n_groups`, `backend` kwargs (defaults preserve behaviour).
 - T8: LR-halving spacing (paper: "halved five times starting at epoch 2250"; spacing unstated) taken as
   even, at 2250, 2400, ..., 2850. Width = 2 max(r_X, r_Y). Initialisation N(0, 1/fan_in). The overfit test
-  uses width 16r and 60 000 epochs because the paper configuration cannot reach 1e-3 here.
+  uses width 16r and 60 000 epochs because the tested paper-default run did not reach 1e-3 here.
+  Its five LR halvings also shift to epochs 45000, 48000, 51000, 54000, 57000.
 - T9: FD/finite volumes and Euclidean inner products instead of FEniCS FE with L^2 mass. The prior's
   Laplacian boundary conditions are not given in the paper; Neumann was assumed, with nodal covariance
   A_h^{-1}/h. Samples are much smaller than the paper's, with one NN seed. These are NOT faithful
@@ -110,6 +112,15 @@ exp1 0.2 s, exp2 89 s, exp3 133 s, exp4 25 s, exp5 3.7 s, exp6 410 s.
    finite-precision limits are listed in `CODEX_REVIEW.md`.
 7. The TT-specific propositions (Props. 1-2, input-side extension) are unpublished derivations from the note;
    the experiments test them, they are not established results.
+
+8. **Strict T9 compliance remains partial:** semilinear `H_Y_reference` and `H_X_white_reference`
+   form dense Grams in library code. The repository exception only names protected `toy.py`.
+   They are reference utilities, but their location violates that rule; preserving public signatures
+   prevents silently removing them in this audit. Exp5 uses the output helper.
+9. exp6 expands TT bases into dense arrays for assembly and inference. It demonstrates training with
+   TT-derived subspaces, not TT-native encoder/decoder execution or an end-to-end TT speedup.
+10. Experiment `H1` labels denote squared whitened derivative errors only, not the combined Sobolev
+    norm. exp2's one held-out set and plug-in variance cannot validate Prop. 2's expectation statement.
 
 ## 7. Provenance
 - Paper: Luo, O'Leary-Roseberry, Chen, Ghattas, arXiv:2504.08730v1. TeX source from
