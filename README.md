@@ -16,12 +16,18 @@ by the discarded per-bond eigenvalues.
 | --- | --- |
 | Interfaces, result types (`interfaces.py`) | done |
 | Toy problem with exact Jacobians and prior (`problems/toy.py`) | done, tested |
-| Acceptance tests (`tests/`) | done; verified satisfiable against a private reference implementation |
-| TT toolkit, linalg, snapshots, Algorithms A-D, bounds, ALS | stubs, tasks T1-T10 |
+| Acceptance tests (`tests/`) | done; unchanged since baseline `d764b45` |
+| TT toolkit, linalg, snapshots, Algorithms A-C, bounds (T1-T6b) | done, independently audited (`notes/CODEX_REVIEW.md`) |
+| RBNO data + Sobolev loss (T7), JAX latent network training (T8, optional `nn` extra) | done |
+| Semilinear PDE problem (`problems/semilinear.py`) + experiments exp1-exp6 (T9) | done (FD approximation of the paper setup; see `notes/T9.md`) |
+| ALS refinement (T10, optional) | NOT implemented (`notes/T10.md`) |
+| Wide whitening factors L | known limitation: unsupported (`notes/T6.md`) |
+
+Full status, numbers and resume instructions: `FINAL_REPORT.md`.
 
 ```
-pytest -q                       # 5 pass (fixtures); the rest fail until T1-T7 are done (no install needed)
-pytest -q -m "slow or not slow" # include statistical tests
+pytest -q                       # 167 pass, 3 slow deselected (no install needed; jax/optax needed for tests/test_train.py)
+pytest -q -m "slow or not slow" # 170 pass, includes the T8 overfit run (~45 s)
 ```
 
 ## Layout
@@ -37,8 +43,9 @@ src/dis_tt/
   input_side.py   T6  Algorithm C (whitened TT active subspace)
   bounds.py       T6b certificates, Prop. 1/2 checks, bootstrap
   rbno.py         T7/T8 Algorithm D (reduced Jacobians, Sobolev loss, training)
-  refine.py       T10 ALS refinement (optional)
+  refine.py       T10 ALS refinement (optional, still a stub)
   problems/toy.py exact test problem
+  problems/semilinear.py T9 paper Sec. 4.1 semilinear elliptic problem (FD)
 experiments/run_checklist.py   T9  the six experiments of note Sec. 8
 agents/                        skill, orchestrator, run guide
 notes/                         per-task implementation logs
