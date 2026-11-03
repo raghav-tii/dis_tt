@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dis_tt"
+version = "0.0.1"
+description = "Derivative-informed subspace (DIS) projectors for tensor-train compression"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "scipy>=1.10"]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+nn = ["jax", "optax"]  # or torch; only for T8
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]  # each git worktree tests its own code; no pip install needed
+addopts = "-m 'not slow'"
+markers = [
+    "slow: long-running statistical checks",
+]
