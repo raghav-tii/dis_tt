@@ -163,3 +163,9 @@ Working tree was clean after integration and gates. This documentation-only foll
 results without changing tested source. Functional validation passes; strict T9 compliance remains
 partial for the dense reference helpers described in section 6.8. Full evidence and limitations:
 `notes/FINAL_VALIDATION.md`. No milestones moved; optional T10 remains unimplemented.
+
+## 11. TT-SVD vs DIS-TT visual comparison
+`docs/TTSVD_vs_DIS_REPORT.md` compares the two methods on parametric families of functions (moving
+pulse, chirp, saturated random field) and on the semilinear PDE. It reports value and derivative
+errors with figures in `docs/figures/`. Regenerate them with
+`PYTHONPATH=src python experiments/plot_ttsvd_vs_dis.py`.
