@@ -51,13 +51,62 @@ def assemble_rbno_data(model: ForwardModel, U_out: np.ndarray, in_basis: Whitene
 
     U_out: dense orthonormal (d_Y, r_Y). A block-TT overload is T9 work.
     """
-    raise NotImplementedError("T7")
+    U = np.asarray(U_out, dtype=float)
+    xs = np.asarray(xs, dtype=float)
+    xs = xs[:, None] if xs.ndim == 1 else xs
+    if xs.shape[1] == 0:
+        raise ValueError("xs must contain at least one sample")
+    y_bar = np.asarray(y_bar, dtype=float)
+    W = in_basis.W()
+    r_Y, r_X = U.shape[1], W.shape[1]
+    if branch == "auto":
+        branch = "jvp" if r_X <= r_Y else "vjp"
+    if branch not in ("jvp", "vjp"):
+        raise ValueError(f"unknown branch {branch!r}")
+    prior = in_basis.prior
+    LW = prior.apply_sqrt(W) if branch == "jvp" else None      # (d_X, r_X)
+    N = xs.shape[1]
+    xi, eta, J = np.empty((N, r_X)), np.empty((N, r_Y)), np.empty((N, r_Y, r_X))
+    for s_, x in enumerate(xs.T):
+        state = model.solve(x)
+        eta[s_] = U.T @ (np.asarray(model.output(state), dtype=float) - y_bar)
+        xi[s_] = in_basis.encode(x)
+        if branch == "jvp":
+            J[s_] = U.T @ np.asarray(model.jvp(state, LW)).reshape(-1, r_X)          # r_X linearised solves
+        else:
+            G = np.asarray(model.vjp(state, U)).reshape(-1, r_Y)                      # r_Y adjoint solves
+            J[s_] = (W.T @ prior.apply_sqrt_T(G)).T                                   # (L W)^T DF^T U, transposed
+    return RBNODataset(xi=xi, eta=eta, J=J, y_bar=y_bar,
+                       meta={"branch": branch, "r_X": r_X, "r_Y": r_Y, "N": N,
+                             "lin_solves_per_sample": r_X if branch == "jvp" else r_Y})
 
 
 def sobolev_loss(eta_pred: np.ndarray, J_pred: np.ndarray, data: RBNODataset,
                  normalise: str = "per_sample", tau: float = 0.0) -> float:
     """Paper eq. 10 averaged over samples. normalise in {"per_sample", "global", "none"}."""
-    raise NotImplementedError("T7")
+    eta_pred = np.asarray(eta_pred, dtype=float).reshape(data.eta.shape)
+    J_pred = np.asarray(J_pred, dtype=float).reshape(data.J.shape)
+    e0 = np.sum((data.eta - eta_pred) ** 2, axis=1)
+    e1 = np.sum((data.J - J_pred) ** 2, axis=(1, 2))
+    a0, a1 = _sobolev_weights(data, normalise, tau)
+    return float(np.mean(e0 / a0 + e1 / a1))
+
+
+def _sobolev_weights(data: RBNODataset, normalise: str = "per_sample", tau: float = 0.0):
+    """(a0, a1) per sample, paper Sec. 2.4: per-sample norms (+tau), global second moments, or 1."""
+    n0 = np.sum(data.eta ** 2, axis=1)
+    n1 = np.sum(data.J ** 2, axis=(1, 2))
+    if normalise == "per_sample":
+        a0, a1 = n0 + tau, n1 + tau
+    elif normalise == "global":
+        a0, a1 = np.full_like(n0, n0.sum() + tau), np.full_like(n1, n1.sum() + tau)
+    elif normalise == "none":
+        a0, a1 = np.ones_like(n0), np.ones_like(n1)
+    else:
+        raise ValueError(f"unknown normalise {normalise!r}")
+    if np.any(a0 <= 0) or np.any(a1 <= 0):
+        raise ValueError("zero normalisation weight; pass tau > 0")
+    return a0, a1
 
 
 def train_latent_network(data: RBNODataset, **kwargs):
