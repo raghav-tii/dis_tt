@@ -55,3 +55,14 @@ None (two extra keyword arguments with defaults, see above).
 ## Independent audit, 2026-11-03
 Verified grouped resampling scaling and added positive group/draw/replicate validation. Fresh toy and bootstrap numbers match prior findings.
 Full evidence, deviations and exact results: `notes/CODEX_REVIEW.md`.
+
+## Report (AGENTS.md format)
+TASK: T6b
+STATUS: done
+TESTS: .venv/bin/python -m pytest -q tests/test_bounds.py -> 4 passed
+EXTRA TESTS ADDED: tests/test_bounds_extra.py (7)
+NUMBERS: ranks (2,3,4,4,4,3,3): lower 2.494522 <= train 3.637771 (= sum tails) <= upper 11.43422; test 4.134923;
+         bootstrap std sum 1.064 (group 64) vs 0.247 (group 1)
+DEVIATIONS: extra kwargs n_groups, backend (defaults keep behaviour)
+ISSUES: none
+NEXT: done
