@@ -35,7 +35,11 @@ from __future__ import annotations
 
 from typing import Sequence
 
+import numpy as np
+
+from . import tt
 from .interfaces import DISTTResult
+from .linalg import select_rank
 from .tt import TensorTrain
 
 
@@ -43,4 +47,49 @@ def dis_tt_native(snapshots: Sequence[TensorTrain], *, eps: float | None = None,
                   rmax: int | None = None, ranks: Sequence[int] | None = None,
                   D: int | None = None) -> DISTTResult:
     """Greedy DIS-TT on a list of TT snapshots with common mode sizes."""
-    raise NotImplementedError("T5")
+    snaps = list(snapshots)
+    if not snaps:
+        raise ValueError("need at least one TT snapshot")
+    modes = snaps[0].mode_sizes
+    if any(z.mode_sizes != modes for z in snaps):
+        raise ValueError("all snapshots must share mode sizes")
+    d = len(modes)
+    if D is None:
+        D = len(ranks) if ranks is not None else d
+    D = int(D)
+    if not 1 <= D <= d:
+        raise ValueError(f"D must lie in 1..{d}, got {D}")
+    if ranks is not None and len(ranks) != D:
+        raise ValueError(f"len(ranks) = {len(ranks)} != D = {D}")
+
+    # right-orthogonalise once: Tr_{>k}(z z^T) = L_k L_k^T, L_k = contraction of cores 1..k
+    cores_tau = [tt.right_orthogonalize(z).cores for z in snaps]
+    total = float(sum(np.sum(c[0] * c[0]) for c in cores_tau))
+    delta2 = None if (eps is None or ranks is not None) else float(eps) ** 2 * total / D
+
+    phis = [np.ones((1, 1)) for _ in snaps]  # U_{<=0}^T L_0
+    cores: list[np.ndarray] = []
+    tails, spectra = [], []
+    r_prev = 1
+    for k in range(D):
+        m = r_prev * modes[k]
+        Hk = np.zeros((m, m))
+        Bs = []
+        for phi, c in zip(phis, cores_tau):
+            B = np.einsum("ac,cib->aib", phi, c[k]).reshape(m, -1)  # rows (alpha_{k-1}, i_k)
+            Hk += B @ B.T
+            Bs.append(B)
+        lam, V = np.linalg.eigh(0.5 * (Hk + Hk.T))
+        lam, V = np.clip(lam[::-1], 0.0, None), V[:, ::-1]
+        r, tail = select_rank(lam, delta2, rmax, rfixed=None if ranks is None else int(ranks[k]))
+        G = V[:, :r]
+        cores.append(G.reshape(r_prev, modes[k], r))
+        tails.append(tail)
+        spectra.append(lam)
+        phis = [G.T @ B for B in Bs]  # r_k x R_k
+        r_prev = r
+
+    return DISTTResult(cores=cores, mode_sizes=tuple(modes), tails=np.asarray(tails, dtype=float),
+                       spectra=spectra, total=total, spectra_complete=[True] * D,
+                       meta={"eps": eps, "rmax": rmax, "D": D, "T": len(snaps),
+                             "max_snapshot_rank": max(max(z.ranks) for z in snaps)})
