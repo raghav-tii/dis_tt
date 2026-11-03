@@ -17,7 +17,27 @@ def select_rank(eigs_desc: np.ndarray, delta2: float | None, rmax: int | None,
     by len(eigs_desc)). delta2 = rfixed = None -> full rank minus numerically zero
     eigenvalues (< 1e-14 * eigs_desc[0]).
     """
-    raise NotImplementedError("T2")
+    e = np.clip(np.asarray(eigs_desc, dtype=float).ravel(), 0.0, None)
+    n = e.size
+    if n == 0:
+        raise ValueError("select_rank needs at least one eigenvalue")
+    if trace is None:
+        # tails[r] = sum_{i>=r} e[i], r = 0..n (suffix sums, tails[n] = 0)
+        tails = np.concatenate([np.cumsum(e[::-1])[::-1], [0.0]])
+    else:
+        tails = np.clip(float(trace) - np.concatenate([[0.0], np.cumsum(e)]), 0.0, None)
+    if rfixed is not None:
+        r = int(rfixed)
+    else:
+        if delta2 is None:
+            r = int(np.sum(e > 1e-14 * e[0])) if e[0] > 0 else 1
+        else:
+            ok = np.nonzero(tails[1:] <= delta2)[0]
+            r = int(ok[0]) + 1 if ok.size else n
+        if rmax is not None:
+            r = min(r, int(rmax))
+    r = max(1, min(r, n))
+    return r, float(tails[r])
 
 
 def top_eigh_gram(M: np.ndarray, k: int | None = None, backend: str = "gram",
@@ -44,4 +64,36 @@ def top_eigh_gram(M: np.ndarray, k: int | None = None, backend: str = "gram",
     -------
     eigvals (descending), eigvecs (m, len(eigvals)), complete (bool).
     """
-    raise NotImplementedError("T2")
+    M = np.asarray(M, dtype=float)
+    m, c = M.shape
+    k = m if k is None else max(0, min(int(k), m))
+    if backend == "auto":
+        backend = "gram" if c >= m else "svd"
+    if backend == "gram":
+        lam, V = np.linalg.eigh(M @ M.T)
+        lam, V = lam[::-1], V[:, ::-1]
+        complete = True
+    elif backend == "svd":
+        full = k > min(m, c)  # need the null-space complement of range(M) as well
+        U, s, _ = np.linalg.svd(M, full_matrices=full)
+        lam = np.zeros(U.shape[1])
+        lam[: s.size] = s * s
+        V = U
+        complete = True
+    elif backend == "randomized":
+        rng = np.random.default_rng(0) if rng is None else rng
+        ell = min(k + int(oversample), m, c) if c > 0 else 0
+        if ell == 0:
+            return np.zeros(0), np.zeros((m, 0)), False
+        Q, _ = np.linalg.qr(M @ rng.standard_normal((c, ell)))
+        for _ in range(int(power_iters)):
+            Q, _ = np.linalg.qr(M.T @ Q)
+            Q, _ = np.linalg.qr(M @ Q)
+        Ub, s, _ = np.linalg.svd(Q.T @ M, full_matrices=False)
+        lam, V = s * s, Q @ Ub
+        k = min(k, lam.size)
+        return lam[:k], V[:, :k], False
+    else:
+        raise ValueError(f"unknown backend {backend!r}")
+    lam = np.clip(lam, 0.0, None)
+    return lam[:k], V[:, :k], complete and k == m
