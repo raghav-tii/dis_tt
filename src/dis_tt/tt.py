@@ -44,12 +44,21 @@ class TensorTrain:
         return TensorTrain([G.copy() for G in self.cores])
 
 
+def _safe_norm(x: np.ndarray) -> float:
+    """Frobenius norm without squaring the physical scale."""
+    scale = float(np.max(np.abs(x), initial=0.0))
+    return scale * float(np.linalg.norm(x / scale)) if scale else 0.0
+
+
 def _truncation_rank(s: np.ndarray, delta: float, rmax: int | None) -> int:
     """Smallest r >= 1 with ||s[r:]||_2 <= delta (delta = 0: drop s < 1e-14 s_1), capped at rmax."""
     if s.size == 0 or s[0] == 0.0:
         r = 1
     elif delta > 0:
-        tail = np.sqrt(np.cumsum((s ** 2)[::-1]))[::-1]  # tail[j] = ||s[j:]||
+        tail = np.sqrt(np.cumsum(((s / s[0]) ** 2)[::-1]))[::-1]
+        # Compare in units of sigma_1: squaring raw singular values can overflow
+        # or underflow even when the vector and its norm are representable.
+        delta = delta / s[0]
         r = max(1, int(np.sum(tail > delta)))
     else:
         r = max(1, int(np.sum(s > 1e-14 * s[0])))
@@ -75,7 +84,7 @@ def from_dense(y: np.ndarray, mode_sizes: Sequence[int], eps: float = 0.0, rmax:
     if y.size != int(np.prod(modes)):
         raise ValueError(f"len(y)={y.size} != prod(mode_sizes)={int(np.prod(modes))}")
     d = len(modes)
-    delta = eps * np.linalg.norm(y) / np.sqrt(d - 1) if (eps > 0 and d > 1) else 0.0
+    delta = eps * _safe_norm(y) / np.sqrt(d - 1) if (eps > 0 and d > 1) else 0.0
     cores: list[np.ndarray] = []
     C, r_prev = y, 1
     for n in modes[:-1]:
@@ -192,7 +201,7 @@ def tt_round(tt: TensorTrain, eps: float, rmax: int | None = None) -> TensorTrai
     R = right_orthogonalize(tt)
     cores = R.cores
     d = len(cores)
-    nrm = np.linalg.norm(cores[0])  # = ||tt||_F after right-orthogonalisation
+    nrm = _safe_norm(cores[0])  # = ||tt||_F after right-orthogonalisation
     delta = eps * nrm / np.sqrt(d - 1) if (eps > 0 and d > 1) else 0.0
     for k in range(d - 1):
         r0, n, r1 = cores[k].shape

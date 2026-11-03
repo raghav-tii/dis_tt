@@ -61,7 +61,9 @@ def dis_tt_dense(Z: np.ndarray, mode_sizes: Sequence[int], *,
         (TT subspace).
     backend : see :func:`dis_tt.linalg.top_eigh_gram`.
     precompress : replace Z by Q Sigma from a thin SVD first (doc Alg. A line 6);
-        only worth it when T > rank(Z). Must not change any output.
+        only worth it when T > rank(Z). Must not change the mathematical result.
+        Skipped for the randomized backend: changing snapshot coordinates would
+        change a seeded sketch and hence its approximate projector.
 
     Returns
     -------
@@ -87,7 +89,7 @@ def dis_tt_dense(Z: np.ndarray, mode_sizes: Sequence[int], *,
     rng = np.random.default_rng(0) if rng is None else rng
 
     T_in = Z.shape[1]
-    if precompress:
+    if precompress and backend != "randomized":
         Z = _precompress(Z)
 
     cores: list[np.ndarray] = []
@@ -119,14 +121,17 @@ def dis_tt_dense(Z: np.ndarray, mode_sizes: Sequence[int], *,
 
 
 def _precompress(Z: np.ndarray) -> np.ndarray:
-    """Q Sigma from a thin SVD of Z (same Z Z^T), keeping the numerical rank; no-op if it does not shrink T."""
+    """Q Sigma from a thin SVD (same Z Z^T); retain all singular values.
+
+    Numerical-rank pruning would silently impose an extra truncation tolerance
+    independent of eps and remove mass from the reported bond tails.
+    """
     if Z.shape[1] <= Z.shape[0]:
         return Z  # rank(Z) <= T already; replacing Z cannot reduce the column count meaningfully
     U, s, _ = np.linalg.svd(Z, full_matrices=False)
     if s.size == 0 or s[0] == 0.0:
         return Z[:, :1] * 0.0
-    keep = int(np.sum(s > s[0] * np.finfo(float).eps * max(Z.shape)))
-    return U[:, :keep] * s[:keep]
+    return U * s
 
 
 def _randomized_bond(M, delta2, rmax, rfixed, oversample, power_iters, rng):

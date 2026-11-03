@@ -51,3 +51,7 @@ None (two extra keyword arguments with defaults, see above).
 
 ## Result
 `pytest tests/test_bounds.py` -> 4 passed; `tests/test_bounds_extra.py` -> 7 passed.
+
+## Independent audit, 2026-11-03
+Verified grouped resampling scaling and added positive group/draw/replicate validation. Fresh toy and bootstrap numbers match prior findings.
+Full evidence, deviations and exact results: `notes/CODEX_REVIEW.md`.

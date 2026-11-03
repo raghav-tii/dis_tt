@@ -81,6 +81,11 @@ def top_eigh_gram(M: np.ndarray, k: int | None = None, backend: str = "gram",
         V = U
         complete = True
     elif backend == "randomized":
+        if k > min(m, c):
+            # The requested subspace includes null directions. A range sketch
+            # cannot supply these; complete the basis with the exact SVD path.
+            lam, V, _ = top_eigh_gram(M, k=k, backend="svd")
+            return lam, V, False
         rng = np.random.default_rng(0) if rng is None else rng
         ell = min(k + int(oversample), m, c) if c > 0 else 0
         if ell == 0:

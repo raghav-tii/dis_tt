@@ -49,6 +49,8 @@ def output_dis_snapshots(model: ForwardModel, prior: GaussianPrior, xs: np.ndarr
     if direction_kind == "random":
         rng = np.random.default_rng(0) if rng is None else rng
         S = int(n_dirs)
+        if S < 1:
+            raise ValueError("n_dirs must be positive")
         dirs = lambda: prior.sample(rng, S)  # fresh h ~ N(0, C_X) per x
         scale = 1.0 / np.sqrt(N * S)
     elif direction_kind == "kl":
@@ -94,6 +96,8 @@ def input_dis_snapshots(model: ForwardModel, prior: GaussianPrior, xs: np.ndarra
     if eta_kind == "gaussian":
         rng = np.random.default_rng(0) if rng is None else rng
         S = int(n_dirs)
+        if S < 1:
+            raise ValueError("n_dirs must be positive")
         scale = 1.0 / np.sqrt(N * S)
     elif eta_kind == "basis":
         if U_out is None:
@@ -135,7 +139,10 @@ def mixed_snapshots(pca: SnapshotSet, dis: SnapshotSet, alpha: float) -> Snapsho
 
 def _as_columns(xs: np.ndarray) -> np.ndarray:
     xs = np.asarray(xs, dtype=float)
-    return xs[:, None] if xs.ndim == 1 else xs
+    xs = xs[:, None] if xs.ndim == 1 else xs
+    if xs.ndim != 2 or xs.shape[1] == 0:
+        raise ValueError("xs must contain at least one sample in a column matrix")
+    return xs
 
 
 def _apply_block(op, state, V: np.ndarray, batch: bool) -> np.ndarray:
