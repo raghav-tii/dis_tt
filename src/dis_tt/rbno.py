@@ -109,11 +109,103 @@ def _sobolev_weights(data: RBNODataset, normalise: str = "per_sample", tau: floa
     return a0, a1
 
 
-def train_latent_network(data: RBNODataset, **kwargs):
+def train_latent_network(data: RBNODataset, *, depth: int = 6, width_factor: int = 2,
+                         activation: str = "softplus", lr: float = 1e-3, epochs: int = 3000,
+                         batch_size: int = 25, n_halvings: int = 5, halving_start: int | None = None,
+                         normalise: str = "per_sample", tau: float = 0.0, seed: int = 0,
+                         log_every: int = 0):
     """Fit phi_theta: R^{r_X} -> R^{r_Y} (paper Table 2: depth 4-6, width 2r, softplus, Adam).
 
     Framework is the implementer's choice (JAX or PyTorch; neither is a hard
     dependency of this package). Must use the exact Jacobian D phi via autodiff
     in the loss. Out of scope for the core tests; see AGENTS.md T8.
+
+    JAX implementation (optional extra ``nn``). Network = paper eq. (neural_network): ``depth``
+    affine layers (d_L), constant width ``width_factor * max(r_X, r_Y)``. Defaults follow the
+    paper's Sec. 4.3 protocol: Adam, batch 25, 3000 epochs, piecewise-constant LR halved
+    ``n_halvings`` times, starting at epoch 2250 (= 0.75 * epochs) and evenly spaced over the
+    remaining epochs (spacing is not stated in the paper; this is an interpretation).
+    Returns a :class:`LatentNetwork`.
     """
-    raise NotImplementedError("T8")
+    try:
+        import jax
+        import jax.numpy as jnp
+        import optax
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise ImportError("train_latent_network needs the optional 'nn' extra: pip install jax optax") from exc
+    jax.config.update("jax_enable_x64", True)
+
+    N, r_X = data.xi.shape
+    r_Y = data.eta.shape[1]
+    width = int(width_factor) * max(r_X, r_Y)
+    act = {"softplus": jax.nn.softplus, "gelu": jax.nn.gelu, "silu": jax.nn.silu, "tanh": jnp.tanh}[activation]
+    sizes = [r_X] + [width] * (int(depth) - 1) + [r_Y]
+    key = jax.random.PRNGKey(seed)
+    params = []
+    for a, b in zip(sizes[:-1], sizes[1:]):
+        key, sub = jax.random.split(key)
+        params.append((jax.random.normal(sub, (a, b)) * np.sqrt(1.0 / a), jnp.zeros(b)))
+
+    def phi(params, x):
+        for Wl, bl in params[:-1]:
+            x = act(x @ Wl + bl)
+        Wl, bl = params[-1]
+        return x @ Wl + bl
+
+    a0, a1 = _sobolev_weights(data, normalise, tau)
+    xi, eta, J = jnp.asarray(data.xi), jnp.asarray(data.eta), jnp.asarray(data.J)
+    a0, a1 = jnp.asarray(a0), jnp.asarray(a1)
+    jac = jax.vmap(jax.jacfwd(phi, argnums=1), in_axes=(None, 0))  # exact D phi, (n, r_Y, r_X)
+
+    def loss_fn(params, idx):
+        e0 = jnp.sum((eta[idx] - jax.vmap(phi, in_axes=(None, 0))(params, xi[idx])) ** 2, axis=1)
+        e1 = jnp.sum((J[idx] - jac(params, xi[idx])) ** 2, axis=(1, 2))
+        return jnp.mean(e0 / a0[idx] + e1 / a1[idx])
+
+    bs = min(int(batch_size), N)
+    steps_per_epoch = int(np.ceil(N / bs))
+    start = int(0.75 * epochs) if halving_start is None else int(halving_start)
+    gap = max(1, (epochs - start) // max(1, n_halvings))
+    bounds = {(start + i * gap) * steps_per_epoch: 0.5 for i in range(int(n_halvings)) if start + i * gap < epochs}
+    schedule = optax.piecewise_constant_schedule(lr, bounds)
+    opt = optax.adam(schedule)
+    state = opt.init(params)
+
+    @jax.jit
+    def step(params, state, idx):
+        val, g = jax.value_and_grad(loss_fn)(params, idx)
+        upd, state = opt.update(g, state, params)
+        return optax.apply_updates(params, upd), state, val
+
+    rng = np.random.default_rng(seed)
+    all_idx = jnp.arange(N)
+    history = []
+    for ep in range(int(epochs)):
+        perm = rng.permutation(N)
+        for b in range(steps_per_epoch):
+            params, state, _ = step(params, state, jnp.asarray(perm[b * bs:(b + 1) * bs]))
+        if log_every and (ep % log_every == 0 or ep == epochs - 1):
+            history.append((ep, float(loss_fn(params, all_idx))))
+    final = float(loss_fn(params, all_idx))
+    meta = {"depth": depth, "width": width, "activation": activation, "lr": lr, "epochs": epochs,
+            "batch_size": bs, "lr_halving_epochs": sorted(k // steps_per_epoch for k in bounds),
+            "normalise": normalise, "tau": tau, "seed": seed, "final_train_loss": final, "history": history}
+    phi_np = jax.jit(jax.vmap(phi, in_axes=(None, 0)))
+    return LatentNetwork(params=params, predict_fn=lambda X: np.asarray(phi_np(params, jnp.atleast_2d(X))),
+                         jacobian_fn=lambda X: np.asarray(jax.jit(jac)(params, jnp.atleast_2d(X))), meta=meta)
+
+
+@dataclass
+class LatentNetwork:
+    """Trained latent map phi with batched evaluation; xi (n, r_X) -> (n, r_Y), Jacobian (n, r_Y, r_X)."""
+
+    params: list
+    predict_fn: object
+    jacobian_fn: object
+    meta: dict
+
+    def predict(self, xi: np.ndarray) -> np.ndarray:
+        return self.predict_fn(np.asarray(xi, dtype=float))
+
+    def jacobian(self, xi: np.ndarray) -> np.ndarray:
+        return self.jacobian_fn(np.asarray(xi, dtype=float))
