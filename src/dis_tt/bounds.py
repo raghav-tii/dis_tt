@@ -82,6 +82,8 @@ def bootstrap_tails(Z: np.ndarray, mode_sizes: Sequence[int], ranks: Sequence[in
         raise ValueError(f"group_size={group_size} must divide the number of columns T={T}")
     G = T // g
     n_draw = G if n_groups is None else int(n_groups)
+    if G < 1 or n_draw < 1 or int(n_boot) < 1:
+        raise ValueError("bootstrap needs positive numbers of groups, draws and replicates")
     rng = np.random.default_rng(0) if rng is None else rng
     scale = np.sqrt(G / n_draw)
     groups = Z.reshape(Z.shape[0], G, g)  # columns grouped contiguously, one x per group

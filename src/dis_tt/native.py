@@ -23,7 +23,7 @@ Row ordering of B_tau must be (a, i) with a = alpha_{k-1} slowest, matching
 reshape(G_k, (r_{k-1} n_k, r_k)) and Algorithm A. At k = d every R_d = 1.
 
 Complexity (doc Sec. 7): O(T d (n R^3 + r n R^2 + r^2 n^2 R)) + O(d r^3 n^3);
-memory O(T d n R^2 + (r n)^2). Do NOT build the stacked rank-(T R) TT
+memory O(T d n R^2 + T r R + (r n)^2). Do NOT build the stacked rank-(T R) TT
 (that is the O(d n (T R)^3) naive alternative).
 
 Snapshots are PRE-SCALED (sum_tau z z^T = H_hat); see dis_tt.snapshots.
@@ -74,11 +74,9 @@ def dis_tt_native(snapshots: Sequence[TensorTrain], *, eps: float | None = None,
     for k in range(D):
         m = r_prev * modes[k]
         Hk = np.zeros((m, m))
-        Bs = []
         for phi, c in zip(phis, cores_tau):
             B = np.einsum("ac,cib->aib", phi, c[k]).reshape(m, -1)  # rows (alpha_{k-1}, i_k)
             Hk += B @ B.T
-            Bs.append(B)
         lam, V = np.linalg.eigh(0.5 * (Hk + Hk.T))
         lam, V = np.clip(lam[::-1], 0.0, None), V[:, ::-1]
         r, tail = select_rank(lam, delta2, rmax, rfixed=None if ranks is None else int(ranks[k]))
@@ -86,7 +84,11 @@ def dis_tt_native(snapshots: Sequence[TensorTrain], *, eps: float | None = None,
         cores.append(G.reshape(r_prev, modes[k], r))
         tails.append(tail)
         spectra.append(lam)
-        phis = [G.T @ B for B in Bs]  # r_k x R_k
+        # Recontract one snapshot at a time rather than retaining T blocks of
+        # shape (r_prev*n_k, R_k). Environments cost O(T r R), independent of n.
+        for tau, c in enumerate(cores_tau):
+            B = np.einsum("ac,cib->aib", phis[tau], c[k]).reshape(m, -1)
+            phis[tau] = G.T @ B  # r_k x R_k
         r_prev = r
 
     return DISTTResult(cores=cores, mode_sizes=tuple(modes), tails=np.asarray(tails, dtype=float),
