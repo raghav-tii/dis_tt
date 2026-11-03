@@ -138,9 +138,28 @@ exp1 0.2 s, exp2 89 s, exp3 133 s, exp4 25 s, exp5 3.7 s, exp6 410 s.
 
 ## 9. Resume
 ```
-cd <repo root>; .venv/bin/python -m pytest -q -m "slow or not slow"      # expect 170 passed
+cd <repo root>; .venv/bin/python -m pytest -q -m "slow or not slow"      # expect 173 passed
 uv pip install --python .venv/bin/python numpy scipy pytest jax optax     # if recreating the venv
 PYTHONPATH=src .venv/bin/python experiments/run_checklist.py exp1          # any of exp1..exp6
 ```
 Open work: T10 (design decision in `notes/T10.md`); wide-L support (`notes/T6.md`); larger-N / FE-mass
 experiments for paper fidelity; batching in Algorithm B.
+
+## 10. Independent consolidated-head validation
+
+Main `1f50554` independently passed 167 fast / 170 inclusive tests. Review branch
+`review/final-validation` added three new regressions and fixed silent return after Newton iteration
+exhaustion. Commit `9691447` was integrated with `git merge --ff-only`; final main gates:
+
+```
+.venv/bin/python -m pytest -q                        -> 170 passed, 3 deselected in 14.97s
+.venv/bin/python -m pytest -q -m "slow or not slow"  -> 173 passed in 52.12s
+.venv/bin/python notes/validate_saved_results.py     -> all protected-file and six-result checks pass
+```
+
+All 22 existing test/fixture files remain unchanged versus `1f50554`; all original tests/protected
+files remain unchanged versus `d764b45`. No experiments were rerun or saved results rewritten.
+Working tree was clean after integration and gates. This documentation-only follow-up records the
+results without changing tested source. Functional validation passes; strict T9 compliance remains
+partial for the dense reference helpers described in section 6.8. Full evidence and limitations:
+`notes/FINAL_VALIDATION.md`. No milestones moved; optional T10 remains unimplemented.

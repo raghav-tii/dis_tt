@@ -146,3 +146,33 @@ Additional protection check enumerated `git ls-tree -r --name-only 1f50554 tests
 blob to the worktree: all 22 existing test/fixture files unchanged. Enumerating baseline test paths
 with the same command at d764b45 and running `.venv/bin/python -m pytest -q -m "slow or not slow"`
 on those nine test files gave **61 passed in 3.19s**.
+
+## Final main integration and gates
+
+`git commit -m "Validate consolidated head and report exhausted Newton solves"` created
+`9691447` on `review/final-validation`. `git switch main` followed by
+`git merge --ff-only review/final-validation` safely advanced main from `1f50554` to `9691447`.
+The review branch is retained. Independently rerun from main at that commit:
+
+```
+.venv/bin/python -m pytest -q
+170 passed, 3 deselected in 14.97s
+.venv/bin/python -m pytest -q -m "slow or not slow"
+173 passed in 52.12s
+.venv/bin/python notes/validate_saved_results.py
+PASS: all protected comparisons and all six saved result checks
+```
+
+`git status --porcelain=v1 --untracked-files=all` was empty after integration and these gates.
+The explicit baseline protected-path diff and diffs of test_train.py/test_semilinear.py against
+1f50554 were empty. A subsequent documentation-only commit records these final gate results in
+this note and FINAL_REPORT.md; the tested source/tests remain exactly those in `9691447`.
+
+TASK: final independent validation (T1–T9 audit)
+STATUS: partial (functional gates pass; strict T9 dense-reference constraint remains unresolved)
+TESTS: .venv/bin/python -m pytest -q -m "slow or not slow" -> 173 passed in 52.12s on main
+EXTRA TESTS ADDED: tests/test_final_validation_extra.py (3 Newton failure/convergence regressions)
+NUMBERS: 61 original tests pass; 22 pre-existing test/fixture files unchanged; six result sets verified
+DEVIATIONS: reference API preserved despite dense-Gram location conflict; paper deviations retained
+ISSUES: dense reference methods in src violate AGENTS.md ground rule 5; see constraints above
+NEXT: resolve reference-helper API placement; optional T10 remains unimplemented
